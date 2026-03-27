@@ -70,5 +70,8 @@
   },
   "peerDependencies": {
     "koishi": "^4.10.0"
+  },
+  "dependencies": {
+    "@minatojs/core": "^2.9.0"
   }
 }
