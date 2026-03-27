@@ -38,18 +38,37 @@ async function checkChannelAuthority(session: Session, authority: number): Promi
   }
 }
 
+declare module 'koishi' {
+  interface Tables {
+    verifyCode: VerifyCode
+  }
+}
+
+export interface VerifyCode {
+  BiliCode: string
+  QQNumber: string
+}
+
+export interface DbVerificationConfig {
+  adminId?: string
+}
+
 export const name = 'verifier'
 
 export interface Config {
   onFriendRequest?: RequestHandler
   onGuildMemberRequest?: RequestHandler
   onGuildRequest?: RequestHandler
+  dbVerification?: DbVerificationConfig
 }
 
 export const Config: Schema<Config> = Schema.object({
   onFriendRequest: RequestHandler.description('如何响应好友请求？'),
   onGuildMemberRequest: RequestHandler.description('如何响应入群申请？'),
   onGuildRequest: RequestHandler.description('如何响应入群邀请？'),
+  dbVerification: Schema.object({
+    adminId: Schema.string().description('管理员用户ID，用于接收重复申请通知'),
+  }).description('数据库验证配置'),
 })
 
 export function apply(ctx: Context, config: Config = {}) {
@@ -69,10 +88,39 @@ export function apply(ctx: Context, config: Config = {}) {
     if (result) return session.bot.handleGuildRequest(session.messageId, ...result)
   })
 
-  ctx.on('guild-member-request', async (session) => {
-    const result = typeof onGuildMemberRequest === 'number'
-      ? await checkUserAuthority(session, onGuildMemberRequest)
-      : await useGeneralHandler(onGuildMemberRequest, session, false)
-    if (result) return session.bot.handleGuildMemberRequest(session.messageId, ...result)
-  })
+  if (config.dbVerification) {
+    ctx.inject(['database'], (ctx) => {
+      ctx.model.extend('verifyCode', {
+        BiliCode: 'string',
+        QQNumber: 'string',
+      }, { primary: 'BiliCode' })
+
+      ctx.on('guild-member-request', async (session) => {
+        const biliCode = session.content?.trim() ?? ''
+        const rows = await ctx.database.get('verifyCode', { BiliCode: biliCode })
+
+        if (rows.length === 0) {
+          return session.bot.handleGuildMemberRequest(session.messageId, false, '请回答你的B站UID')
+        }
+
+        const row = rows[0]
+        if (!row.QQNumber) {
+          await ctx.database.set('verifyCode', { BiliCode: biliCode }, { QQNumber: session.userId })
+          return session.bot.handleGuildMemberRequest(session.messageId, true)
+        } else {
+          const { adminId } = config.dbVerification
+          if (adminId) {
+            await session.bot.sendPrivateMessage(adminId, '检测到重复用户申请入群，请介入')
+          }
+        }
+      })
+    })
+  } else {
+    ctx.on('guild-member-request', async (session) => {
+      const result = typeof onGuildMemberRequest === 'number'
+        ? await checkUserAuthority(session, onGuildMemberRequest)
+        : await useGeneralHandler(onGuildMemberRequest, session, false)
+      if (result) return session.bot.handleGuildMemberRequest(session.messageId, ...result)
+    })
+  }
 }
