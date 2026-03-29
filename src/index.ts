@@ -90,6 +90,8 @@ export function apply(ctx: Context, config: Config = {}) {
 
   if (config.dbVerification) {
     ctx.inject(['database'], (ctx) => {
+      const logger = ctx.logger('verifier')
+
       ctx.model.extend('verifyCode', {
         BiliCode: 'string',
         QQNumber: 'string',
@@ -97,20 +99,27 @@ export function apply(ctx: Context, config: Config = {}) {
 
       ctx.on('guild-member-request', async (session) => {
         const biliCode = session.content?.trim() ?? ''
+        logger.debug('received guild-member-request from %s, BiliCode: %s', session.userId, biliCode)
+
         const rows = await ctx.database.get('verifyCode', { BiliCode: biliCode })
 
         if (rows.length === 0) {
+          logger.info('guild-member-request rejected: BiliCode %s not found (userId: %s)', biliCode, session.userId)
           return session.bot.handleGuildMemberRequest(session.messageId, false, '请回答你的B站UID')
         }
 
         const row = rows[0]
         if (!row.QQNumber) {
+          logger.info('guild-member-request approved: BiliCode %s matched, updating QQNumber to %s', biliCode, session.userId)
           await ctx.database.set('verifyCode', { BiliCode: biliCode }, { QQNumber: session.userId })
           return session.bot.handleGuildMemberRequest(session.messageId, true)
         } else {
+          logger.warn('guild-member-request held: BiliCode %s already bound to QQNumber %s, requester: %s', biliCode, row.QQNumber, session.userId)
           const { adminId } = config.dbVerification
           if (adminId) {
             await session.bot.sendPrivateMessage(adminId, '检测到重复用户申请入群，请介入')
+          } else {
+            logger.warn('no adminId configured, duplicate request notification skipped')
           }
         }
       })
