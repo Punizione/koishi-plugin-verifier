@@ -22,6 +22,14 @@ const receiveGroupMemberRequestWithContent = (app: App, userId: string, content:
   user: { id: userId },
 })
 
+const receiveGroupMemberRemoved = (app: App, userId: string) => receive(app, {
+  platform: 'mock',
+  selfId: DEFAULT_SELF_ID,
+  type: 'guild-member-removed',
+  guild: { id: '10000' },
+  user: { id: userId },
+})
+
 describe('koishi-plugin-verifier db verification', () => {
   async function setupWithDb(options: verifier.Config, initialData: verifier.VerifyCode[] = []) {
     const app = new App()
@@ -59,6 +67,19 @@ describe('koishi-plugin-verifier db verification', () => {
     expect(rows[0].QQNumber).to.equal('321')
   })
 
+  it('parses BiliCode from "问题：...\\n答案：<uid>" content format', async () => {
+    const instance = await setupWithDb(
+      { dbVerification: { adminId: '999' } },
+      [{ BiliCode: '12345678', QQNumber: '' }],
+    )
+
+    await receiveGroupMemberRequestWithContent(instance.app, '321', '问题：你的B站UID是？\n答案：12345678')
+    await sleep(50)
+    expect(instance.handleGuildMemberRequest.mock.calls).to.have.shape([['flag', true]])
+    const rows = await instance.app.database.get('verifyCode', { BiliCode: '12345678' })
+    expect(rows[0].QQNumber).to.equal('321')
+  })
+
   it('notifies admin when BiliCode found with existing QQNumber', async () => {
     const instance = await setupWithDb(
       { dbVerification: { adminId: '999' } },
@@ -81,5 +102,30 @@ describe('koishi-plugin-verifier db verification', () => {
     await sleep(50)
     expect(instance.handleGuildMemberRequest.mock.calls).to.have.length(0)
     expect(instance.sendPrivateMessage.mock.calls).to.have.length(0)
+  })
+
+  it('removes verifyCode record when guild member leaves', async () => {
+    const instance = await setupWithDb(
+      { dbVerification: { adminId: '999' } },
+      [{ BiliCode: '12345678', QQNumber: '321' }],
+    )
+
+    await receiveGroupMemberRemoved(instance.app, '321')
+    await sleep(50)
+    const rows = await instance.app.database.get('verifyCode', { QQNumber: '321' })
+    expect(rows).to.have.length(0)
+  })
+
+  it('does nothing on guild-member-removed when QQNumber not found', async () => {
+    const instance = await setupWithDb(
+      { dbVerification: { adminId: '999' } },
+      [{ BiliCode: '12345678', QQNumber: '' }],
+    )
+
+    await receiveGroupMemberRemoved(instance.app, '999')
+    await sleep(50)
+    // Original record should be untouched
+    const rows = await instance.app.database.get('verifyCode', { BiliCode: '12345678' })
+    expect(rows).to.have.length(1)
   })
 })

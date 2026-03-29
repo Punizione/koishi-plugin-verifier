@@ -37,25 +37,28 @@ export function apply(ctx: Context, config: Config = {}) {
     }, { primary: 'BiliCode' })
 
     ctx.on('guild-member-request', async (session) => {
+      const userId = session.event?.user?.id ?? session.userId
       const rawContent = session.content ?? ''
-      const biliCode = rawContent.trim()
-      logger.info('received guild-member-request from %s, raw content: %j, BiliCode: %s', session.userId, rawContent, biliCode)
+      // Support both plain UID and "问题：...\n答案：<uid>" format
+      const answerMatch = rawContent.match(/答案[：:]\s*(.+)$/m)
+      const biliCode = (answerMatch ? answerMatch[1] : rawContent).trim()
+      logger.info('received guild-member-request from %s, raw content: %j, BiliCode: %s', userId, rawContent, biliCode)
 
       const rows = await ctx.database.get('verifyCode', [biliCode])
       logger.info('database query for BiliCode %s returned %d row(s)', biliCode, rows.length)
 
       if (rows.length === 0) {
-        logger.info('guild-member-request rejected: BiliCode %s not found (userId: %s)', biliCode, session.userId)
+        logger.info('guild-member-request rejected: BiliCode %s not found (userId: %s)', biliCode, userId)
         return session.bot.handleGuildMemberRequest(session.messageId, false, '请回答你的B站UID')
       }
 
       const row = rows[0]
       if (!row.QQNumber) {
-        logger.info('guild-member-request approved: BiliCode %s matched, updating QQNumber to %s', biliCode, session.userId)
-        await ctx.database.set('verifyCode', { BiliCode: biliCode }, { QQNumber: session.userId })
+        logger.info('guild-member-request approved: BiliCode %s matched, updating QQNumber to %s', biliCode, userId)
+        await ctx.database.set('verifyCode', { BiliCode: biliCode }, { QQNumber: userId })
         return session.bot.handleGuildMemberRequest(session.messageId, true)
       } else {
-        logger.info('guild-member-request held: BiliCode %s already bound to QQNumber %s, requester: %s', biliCode, row.QQNumber, session.userId)
+        logger.info('guild-member-request held: BiliCode %s already bound to QQNumber %s, requester: %s', biliCode, row.QQNumber, userId)
         const { adminId } = config.dbVerification ?? {}
         if (adminId) {
           await session.bot.sendPrivateMessage(adminId, '检测到重复用户申请入群，请介入')
@@ -63,6 +66,13 @@ export function apply(ctx: Context, config: Config = {}) {
           logger.info('no adminId configured, duplicate request notification skipped')
         }
       }
+    })
+
+    ctx.on('guild-member-removed', async (session) => {
+      const userId = session.event?.user?.id ?? session.userId
+      if (!userId) return
+      const removed = await ctx.database.remove('verifyCode', { QQNumber: userId })
+      logger.info('guild-member-removed: userId %s, removed %d verifyCode record(s)', userId, removed.removed ?? 0)
     })
   })
 }
