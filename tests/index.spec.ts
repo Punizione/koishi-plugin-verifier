@@ -104,7 +104,7 @@ describe('koishi-plugin-verifier db verification', () => {
     expect(instance.sendPrivateMessage.mock.calls).to.have.length(0)
   })
 
-  it('removes verifyCode record when guild member leaves', async () => {
+  it('resets QQNumber when guild member leaves', async () => {
     const instance = await setupWithDb(
       { dbVerification: { adminId: '999' } },
       [{ BiliCode: '12345678', QQNumber: '321' }],
@@ -112,8 +112,9 @@ describe('koishi-plugin-verifier db verification', () => {
 
     await receiveGroupMemberRemoved(instance.app, '321')
     await sleep(50)
-    const rows = await instance.app.database.get('verifyCode', { QQNumber: '321' })
-    expect(rows).to.have.length(0)
+    const rows = await instance.app.database.get('verifyCode', { BiliCode: '12345678' })
+    expect(rows).to.have.length(1)
+    expect(rows[0].QQNumber).to.equal('')
   })
 
   it('does nothing on guild-member-removed when QQNumber not found', async () => {
@@ -159,7 +160,7 @@ describe('koishi-plugin-verifier db verification', () => {
 
     await receiveGroupMemberRemoved(instance.app, '321', '99999')
     await sleep(50)
-    // Record should NOT be deleted
+    // Record should NOT be updated (QQNumber stays as-is)
     const rows = await instance.app.database.get('verifyCode', { QQNumber: '321' })
     expect(rows).to.have.length(1)
   })

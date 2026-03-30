@@ -85,8 +85,8 @@ export function apply(ctx: Context, config: Config = {}) {
       }
       const userId = session.event?.user?.id ?? session.userId
       if (!userId) return
-      const removed = await ctx.database.remove('verifyCode', { QQNumber: userId })
-      logger.info('guild-member-removed: userId %s, removed %d verifyCode record(s)', userId, removed.removed ?? 0)
+      const updated = await ctx.database.set('verifyCode', { QQNumber: userId }, { QQNumber: '' })
+      logger.info('guild-member-removed: userId %s, reset QQNumber for %d verifyCode record(s)', userId, updated.matched ?? 0)
     })
   })
 }
