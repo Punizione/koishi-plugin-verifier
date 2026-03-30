@@ -13,20 +13,20 @@ function receive(app: App, session: Partial<Session>) {
   return sleep(0)
 }
 
-const receiveGroupMemberRequestWithContent = (app: App, userId: string, content: string) => receive(app, {
+const receiveGroupMemberRequestWithContent = (app: App, userId: string, content: string, guildId = '10000') => receive(app, {
   platform: 'mock',
   selfId: DEFAULT_SELF_ID,
   type: 'guild-member-request',
-  guild: { id: '10000' },
+  guild: { id: guildId },
   message: { id: 'flag', elements: Element.parse(content) },
   user: { id: userId },
 })
 
-const receiveGroupMemberRemoved = (app: App, userId: string) => receive(app, {
+const receiveGroupMemberRemoved = (app: App, userId: string, guildId = '10000') => receive(app, {
   platform: 'mock',
   selfId: DEFAULT_SELF_ID,
   type: 'guild-member-removed',
-  guild: { id: '10000' },
+  guild: { id: guildId },
   user: { id: userId },
 })
 
@@ -126,6 +126,41 @@ describe('koishi-plugin-verifier db verification', () => {
     await sleep(50)
     // Original record should be untouched
     const rows = await instance.app.database.get('verifyCode', { BiliCode: '12345678' })
+    expect(rows).to.have.length(1)
+  })
+
+  it('skips guild-member-request from a guild not in enabledGuilds', async () => {
+    const instance = await setupWithDb(
+      { dbVerification: { adminId: '999', enabledGuilds: ['10000'] } },
+      [{ BiliCode: '12345678', QQNumber: '' }],
+    )
+
+    await receiveGroupMemberRequestWithContent(instance.app, '321', '12345678', '99999')
+    await sleep(50)
+    expect(instance.handleGuildMemberRequest.mock.calls).to.have.length(0)
+  })
+
+  it('processes guild-member-request from a guild in enabledGuilds', async () => {
+    const instance = await setupWithDb(
+      { dbVerification: { adminId: '999', enabledGuilds: ['10000'] } },
+      [{ BiliCode: '12345678', QQNumber: '' }],
+    )
+
+    await receiveGroupMemberRequestWithContent(instance.app, '321', '12345678', '10000')
+    await sleep(50)
+    expect(instance.handleGuildMemberRequest.mock.calls).to.have.shape([['flag', true]])
+  })
+
+  it('skips guild-member-removed from a guild not in enabledGuilds', async () => {
+    const instance = await setupWithDb(
+      { dbVerification: { adminId: '999', enabledGuilds: ['10000'] } },
+      [{ BiliCode: '12345678', QQNumber: '321' }],
+    )
+
+    await receiveGroupMemberRemoved(instance.app, '321', '99999')
+    await sleep(50)
+    // Record should NOT be deleted
+    const rows = await instance.app.database.get('verifyCode', { QQNumber: '321' })
     expect(rows).to.have.length(1)
   })
 })

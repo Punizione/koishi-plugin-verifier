@@ -13,6 +13,7 @@ export interface VerifyCode {
 
 export interface DbVerificationConfig {
   adminId?: string
+  enabledGuilds?: string[]
 }
 
 export const name = 'verifier'
@@ -24,6 +25,7 @@ export interface Config {
 export const Config: Schema<Config> = Schema.object({
   dbVerification: Schema.object({
     adminId: Schema.string().description('管理员用户ID，用于接收重复申请通知'),
+    enabledGuilds: Schema.array(String).description('启用数据库验证的群号列表，留空则对所有群生效'),
   }).description('数据库验证配置'),
 })
 
@@ -37,6 +39,12 @@ export function apply(ctx: Context, config: Config = {}) {
     }, { primary: 'BiliCode' })
 
     ctx.on('guild-member-request', async (session) => {
+      const { enabledGuilds } = config.dbVerification ?? {}
+      const guildId = session.event?.guild?.id ?? session.guildId
+      if (enabledGuilds?.length && !enabledGuilds.includes(guildId)) {
+        logger.info('guild-member-request from guild %s skipped (not in enabledGuilds)', guildId)
+        return
+      }
       const userId = session.event?.user?.id ?? session.userId
       const rawContent = session.content ?? ''
       // Support both plain UID and "问题：...\n答案：<uid>" format
@@ -69,6 +77,12 @@ export function apply(ctx: Context, config: Config = {}) {
     })
 
     ctx.on('guild-member-removed', async (session) => {
+      const { enabledGuilds } = config.dbVerification ?? {}
+      const guildId = session.event?.guild?.id ?? session.guildId
+      if (enabledGuilds?.length && !enabledGuilds.includes(guildId)) {
+        logger.info('guild-member-removed from guild %s skipped (not in enabledGuilds)', guildId)
+        return
+      }
       const userId = session.event?.user?.id ?? session.userId
       if (!userId) return
       const removed = await ctx.database.remove('verifyCode', { QQNumber: userId })
