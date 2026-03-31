@@ -44,7 +44,7 @@
     "test:html": "shx rm -rf coverage && c8 -r html yarn test"
   },
   "devDependencies": {
-    "@koishijs/plugin-database-memory": "^2.2.2",
+    "@koishijs/plugin-database-memory": "3.7.0",
     "@koishijs/plugin-help": "^2.0.2",
     "@koishijs/plugin-mock": "^2.3.2",
     "@koishijs/vitepress": "^1.6.1",
@@ -70,5 +70,8 @@
   },
   "peerDependencies": {
     "koishi": "^4.10.0"
+  },
+  "dependencies": {
+    "@minatojs/core": "^2.9.0"
   }
 }
